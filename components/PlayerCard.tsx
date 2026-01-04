@@ -1,6 +1,6 @@
 import React from 'react';
 import { Player, PlayerType } from '../types';
-import { Trash2, UserCog, CheckCircle, XCircle, Shield, MoreHorizontal, Play } from 'lucide-react';
+import { Trash2, UserPlus, UserMinus, CheckCircle, XCircle, Shield } from 'lucide-react';
 import StarRating from './StarRating';
 
 interface PlayerCardProps {
@@ -8,6 +8,7 @@ interface PlayerCardProps {
   onDelete: (id: string) => void;
   onToggleStatus: (id: string) => void;
   onPromote?: (id: string) => void;
+  onDemote?: (id: string) => void;
   onUpdateStars?: (id: string, stars: number) => void;
   mode: 'MANAGE' | 'RATE' | 'SELECT';
   isSelected?: boolean;
@@ -20,6 +21,7 @@ const PlayerCard: React.FC<PlayerCardProps> = ({
   onDelete, 
   onToggleStatus, 
   onPromote,
+  onDemote,
   onUpdateStars,
   mode,
   isSelected,
@@ -92,13 +94,24 @@ const PlayerCard: React.FC<PlayerCardProps> = ({
         
         {mode === 'MANAGE' && (
           <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center bg-black/50 rounded-full backdrop-blur-sm p-1">
+            {/* Conversion Buttons */}
             {player.type === PlayerType.AVULSO && onPromote && (
                <button 
                  onClick={() => onPromote(player.id)}
                  className="p-1.5 text-spotify-subtext hover:text-white transition-colors"
                  title="Tornar Mensalista"
                >
-                 <UserCog size={16} />
+                 <UserPlus size={16} />
+               </button>
+            )}
+
+            {player.type === PlayerType.MENSALISTA && onDemote && (
+               <button 
+                 onClick={() => onDemote(player.id)}
+                 className="p-1.5 text-spotify-subtext hover:text-white transition-colors"
+                 title="Tornar Avulso"
+               >
+                 <UserMinus size={16} />
                </button>
             )}
             

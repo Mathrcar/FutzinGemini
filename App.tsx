@@ -140,6 +140,21 @@ function App() {
 
   const handleToggleStatus = (id: string) => setPlayers(storage.togglePlayerStatus(id));
   const handlePromote = (id: string) => setPlayers(storage.promoteToMensalista(id));
+  
+  const handleDemote = (id: string) => {
+    const otherMensalistas = players.filter(p => p.type === PlayerType.MENSALISTA && p.id !== id && p.isActive);
+    
+    if (otherMensalistas.length === 0) {
+      alert("Não é possível transformar em avulso porque não existem outros mensalistas ativos para serem responsáveis.");
+      return;
+    }
+    
+    if (confirm(`Transformar em Avulso? O jogador será vinculado a ${otherMensalistas[0].name} como responsável padrão.`)) {
+      const updated = storage.demoteToAvulso(id, otherMensalistas[0].id);
+      setPlayers(updated);
+    }
+  };
+
   const handleUpdateStars = (id: string, stars: number) => setPlayers(storage.updatePlayerStars(id, stars));
 
   const toggleSelection = (id: string) => {
@@ -574,6 +589,7 @@ function App() {
                   onDelete={handleDelete}
                   onToggleStatus={handleToggleStatus}
                   onPromote={handlePromote}
+                  onDemote={handleDemote}
                   responsibleName={getResponsibleName(player.linkedMensalistaId)}
                 />
               ))}

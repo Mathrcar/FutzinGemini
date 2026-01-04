@@ -51,6 +51,14 @@ export const promoteToMensalista = (id: string): Player[] => {
   return players;
 };
 
+export const demoteToAvulso = (id: string, responsibleId: string): Player[] => {
+  const players = getPlayers().map(p => 
+    p.id === id ? { ...p, type: PlayerType.AVULSO, linkedMensalistaId: responsibleId } : p
+  );
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(players));
+  return players;
+};
+
 export const updatePlayerStars = (id: string, stars: number): Player[] => {
   const players = getPlayers().map(p => 
     p.id === id ? { ...p, stars } : p
