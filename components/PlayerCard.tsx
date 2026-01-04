@@ -12,6 +12,7 @@ interface PlayerCardProps {
   mode: 'MANAGE' | 'RATE' | 'SELECT';
   isSelected?: boolean;
   onSelectToggle?: (id: string) => void;
+  responsibleName?: string;
 }
 
 const PlayerCard: React.FC<PlayerCardProps> = ({ 
@@ -22,7 +23,8 @@ const PlayerCard: React.FC<PlayerCardProps> = ({
   onUpdateStars,
   mode,
   isSelected,
-  onSelectToggle
+  onSelectToggle,
+  responsibleName
 }) => {
   
   const handleSelect = () => {
@@ -56,12 +58,6 @@ const PlayerCard: React.FC<PlayerCardProps> = ({
               <Shield size={10} fill="currentColor" />
             </div>
           )}
-          {/* Play Overlay (Aesthetic) */}
-          {mode === 'MANAGE' && (
-             <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <Play size={16} className="fill-white text-white ml-0.5" />
-             </div>
-          )}
         </div>
 
         {/* Info */}
@@ -75,6 +71,12 @@ const PlayerCard: React.FC<PlayerCardProps> = ({
                 <span className="w-1 h-1 rounded-full bg-spotify-subtext"></span>
                 <span>{player.type === PlayerType.MENSALISTA ? 'Mensalista' : 'Avulso'}</span>
              </div>
+             
+             {player.type === PlayerType.AVULSO && responsibleName && (
+               <div className="text-[10px] font-bold text-yellow-500/80 truncate mt-0.5">
+                  Resp: {responsibleName}
+               </div>
+             )}
              
              {mode !== 'RATE' && (
                <div className="mt-1 flex">
