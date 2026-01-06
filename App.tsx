@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Users, Star, Shirt, Plus, X, Wand2, Loader2, Trophy, AlertTriangle, Shield, Search, Menu, History, Save, Calendar, Clock, Camera, Upload, ImagePlus, Banknote, ChevronLeft, ChevronRight, CheckCircle2, Circle, Lock, ArrowRight, TrendingUp, TrendingDown, Utensils, Flame, Receipt } from 'lucide-react';
-import { Player, PlayerType, TabView, Team, GameHistory, FinancialSettings, PaymentRegistry, BarbecueEvent } from './types';
+import { Users, Star, Shirt, Plus, X, Wand2, Loader2, Trophy, AlertTriangle, Shield, Search, Menu, History, Save, Calendar, Clock, Camera, Upload, ImagePlus, Banknote, ChevronLeft, ChevronRight, CheckCircle2, Circle, Lock, ArrowRight, TrendingUp, TrendingDown, Utensils, Flame, Receipt, SwatchBook, Swords, Trash2 } from 'lucide-react';
+import { Player, PlayerType, TabView, Team, GameHistory, FinancialSettings, PaymentRegistry, BarbecueEvent, Match } from './types';
 import * as storage from './services/storageService';
 import * as geminiService from './services/geminiService';
 import PlayerCard from './components/PlayerCard';
@@ -17,6 +17,15 @@ function App() {
   const [history, setHistory] = useState<GameHistory[]>([]);
   const [barbecues, setBarbecues] = useState<BarbecueEvent[]>([]);
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
+
+  // Match State
+  const [currentMatches, setCurrentMatches] = useState<Match[]>([]);
+  const [matchForm, setMatchForm] = useState({
+    teamAId: -1,
+    teamBId: -1,
+    scoreA: 0,
+    scoreB: 0
+  });
 
   // Finance State
   const [financialSettings, setFinancialSettings] = useState<FinancialSettings>({ monthlyFee: 0, perGameFee: 0, courtRentalCost: 0 });
@@ -68,6 +77,46 @@ function App() {
       setSelectedHistoryId(loadedHistory[0].id);
     }
   }, []);
+
+  // --- Performance Calculation ---
+  const playerPerformanceMap = useMemo(() => {
+    const stats: Record<string, { wins: number, totalGames: number }> = {};
+    
+    history.forEach(game => {
+      if (!game.matches) return;
+      game.matches.forEach(match => {
+        const teamA = game.teams.find(t => t.id === match.teamAId);
+        const teamB = game.teams.find(t => t.id === match.teamBId);
+        if (!teamA || !teamB) return;
+
+        const teamAWins = match.scoreA > match.scoreB;
+        const isDraw = match.scoreA === match.scoreB;
+
+        teamA.players.forEach(p => {
+          if (!stats[p.id]) stats[p.id] = { wins: 0, totalGames: 0 };
+          stats[p.id].totalGames++;
+          if (teamAWins) stats[p.id].wins++;
+          else if (isDraw) stats[p.id].wins += 0.5;
+        });
+
+        teamB.players.forEach(p => {
+          if (!stats[p.id]) stats[p.id] = { wins: 0, totalGames: 0 };
+          stats[p.id].totalGames++;
+          if (!teamAWins && !isDraw) stats[p.id].wins++;
+          else if (isDraw) stats[p.id].wins += 0.5;
+        });
+      });
+    });
+
+    const result: Record<string, { winRate: number, totalGames: number }> = {};
+    Object.keys(stats).forEach(id => {
+      result[id] = {
+        winRate: stats[id].wins / stats[id].totalGames,
+        totalGames: stats[id].totalGames
+      };
+    });
+    return result;
+  }, [history]);
 
   // --- Helpers ---
   const getResponsibleName = useCallback((linkedId?: string) => {
@@ -173,6 +222,7 @@ function App() {
       timestamp: date.getTime(),
       dateString: date.toLocaleDateString('pt-BR'),
       teams: generatedTeams,
+      matches: currentMatches.length > 0 ? currentMatches : undefined,
       stats: {
         totalPlayers: generatedTeams.reduce((acc, t) => acc + t.players.length, 0),
         averageBalance: generatedTeams.reduce((acc, t) => acc + t.averageStars, 0) / generatedTeams.length
@@ -184,8 +234,37 @@ function App() {
     setSelectedHistoryId(newGame.id);
     setActiveTab('HISTORY');
     setGeneratedTeams([]); 
+    setCurrentMatches([]);
     setTeamsError(null);
     alert("Jogo salvo no histórico com sucesso!");
+  };
+
+  const handleAddMatch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (matchForm.teamAId === -1 || matchForm.teamBId === -1) {
+      alert("Selecione os dois times para a partida.");
+      return;
+    }
+    if (matchForm.teamAId === matchForm.teamBId) {
+      alert("Um time não pode enfrentar ele mesmo.");
+      return;
+    }
+
+    const newMatch: Match = {
+      id: crypto.randomUUID(),
+      teamAId: matchForm.teamAId,
+      teamBId: matchForm.teamBId,
+      scoreA: matchForm.scoreA,
+      scoreB: matchForm.scoreB,
+      timestamp: Date.now()
+    };
+
+    setCurrentMatches([newMatch, ...currentMatches]);
+    setMatchForm({ ...matchForm, scoreA: 0, scoreB: 0 });
+  };
+
+  const handleDeleteMatch = (id: string) => {
+    setCurrentMatches(currentMatches.filter(m => m.id !== id));
   };
 
   const toggleBbqSelection = (id: string) => {
@@ -287,11 +366,18 @@ function App() {
     let numTeams = 3; 
     if (total >= 22) numTeams = 4;
     
-    const sortedOutfield = [...outfield].sort((a, b) => b.stars - a.stars);
+    // Create a composite score: stars + performance modifier (max +1.0)
+    const getCompositeScore = (p: Player) => {
+      const perf = playerPerformanceMap[p.id];
+      const modifier = perf ? (perf.winRate - 0.5) * 2 : 0; // -1 to 1 based on win rate
+      return p.stars + modifier;
+    };
+
+    const sortedOutfield = [...outfield].sort((a, b) => getCompositeScore(b) - getCompositeScore(a));
     
     const teams: Player[][] = Array.from({ length: numTeams }, () => []);
     
-    const sortedGKs = [...gks].sort((a,b) => b.stars - a.stars);
+    const sortedGKs = [...gks].sort((a,b) => getCompositeScore(b) - getCompositeScore(a));
     sortedGKs.forEach((gk, index) => {
        teams[index % numTeams].push(gk);
     });
@@ -324,6 +410,7 @@ function App() {
     });
 
     setGeneratedTeams(resultTeams);
+    setCurrentMatches([]); 
   };
 
   const handleGenerateTeams = async (method: typeof ALGO_LOCAL | typeof ALGO_AI) => {
@@ -338,8 +425,9 @@ function App() {
          const selected = players.filter(p => selectedPlayerIds.has(p.id));
          try {
              setLoadingAI(true);
-             const aiTeams = await geminiService.generateTeamsWithAI(selected);
+             const aiTeams = await geminiService.generateTeamsWithAI(selected, playerPerformanceMap);
              setGeneratedTeams(aiTeams);
+             setCurrentMatches([]); 
          } catch (e) {
              setTeamsError("Erro ao gerar times com IA. Verifique sua chave API ou tente o modo padrão.");
              console.error(e);
@@ -555,6 +643,9 @@ function App() {
              <button onClick={() => setActiveTab('TEAMS')} className={`flex items-center gap-4 text-sm font-bold transition-colors ${activeTab === 'TEAMS' ? 'text-white' : 'text-spotify-subtext hover:text-white'}`}>
                 <Shirt size={24} /> Sortear Times
              </button>
+             <button onClick={() => setActiveTab('PLACAR')} className={`flex items-center gap-4 text-sm font-bold transition-colors ${activeTab === 'PLACAR' ? 'text-white' : 'text-spotify-subtext hover:text-white'}`}>
+                <Swords size={24} /> Placar
+             </button>
              <button onClick={() => setActiveTab('BBQ')} className={`flex items-center gap-4 text-sm font-bold transition-colors ${activeTab === 'BBQ' ? 'text-white' : 'text-spotify-subtext hover:text-white'}`}>
                 <Utensils size={24} /> Churrasco
              </button>
@@ -638,8 +729,9 @@ function App() {
 
               {generatedTeams.length > 0 ? (
                   <div className="space-y-6 pb-20">
-                      <div className="flex justify-end">
-                         <button onClick={handleSaveGame} className="bg-spotify-green text-black px-4 py-2 rounded-full font-bold flex items-center gap-2"><Save size={18} /> Salvar</button>
+                      <div className="flex justify-between items-center bg-white/5 p-4 rounded-lg">
+                         <span className="text-spotify-subtext text-sm">Os times foram sorteados. Vá para a aba <b>Placar</b> para marcar os resultados!</span>
+                         <button onClick={() => setActiveTab('PLACAR')} className="text-spotify-green hover:underline flex items-center gap-2 font-bold"><Swords size={18}/> IR PARA PLACAR</button>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
                           {generatedTeams.map(team => (
@@ -702,6 +794,123 @@ function App() {
                   </div>
               )}
            </div>
+        )}
+
+        {activeTab === 'PLACAR' && (
+          <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+             <div className="flex justify-between items-end">
+               <div>
+                   <h2 className="text-3xl md:text-5xl font-bold mb-2 tracking-tighter">Placar do Dia</h2>
+                   <p className="text-spotify-subtext text-sm">Registre os confrontos entre os times sorteados.</p>
+               </div>
+               {generatedTeams.length > 0 && (
+                 <button onClick={handleSaveGame} className="bg-spotify-green hover:bg-spotify-green-bright text-black font-bold rounded-full px-6 py-3 flex items-center gap-2 transform hover:scale-105 transition-all shadow-lg">
+                   <Save size={20} strokeWidth={3} /> FINALIZAR E SALVAR DIA
+                 </button>
+               )}
+            </div>
+
+            {generatedTeams.length < 2 ? (
+              <div className="bg-spotify-elevated p-12 rounded-xl border border-white/5 text-center flex flex-col items-center gap-4">
+                <AlertTriangle size={48} className="text-yellow-500" />
+                <h3 className="text-xl font-bold">Times não sorteados</h3>
+                <p className="text-spotify-subtext max-w-sm">Você precisa sortear pelo menos 2 times na aba <b>Sortear Times</b> para começar a registrar o placar das partidas.</p>
+                <button onClick={() => setActiveTab('TEAMS')} className="bg-white text-black px-6 py-2 rounded-full font-bold mt-2">IR PARA SORTEIO</button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Form to add Match */}
+                <div className="lg:col-span-1">
+                  <form onSubmit={handleAddMatch} className="bg-spotify-elevated p-6 rounded-xl border border-white/10 space-y-6 sticky top-24">
+                    <h3 className="font-bold text-lg flex items-center gap-2"><Plus size={20} className="text-spotify-green"/> Nova Partida</h3>
+                    
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] uppercase font-bold text-spotify-subtext tracking-widest">Time A</label>
+                        <select 
+                          className="w-full bg-black/40 border border-white/10 p-3 rounded outline-none focus:border-spotify-green text-sm"
+                          value={matchForm.teamAId}
+                          onChange={e => setMatchForm({...matchForm, teamAId: parseInt(e.target.value)})}
+                        >
+                          <option value={-1}>Selecione...</option>
+                          {generatedTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        </select>
+                        <input 
+                          type="number" 
+                          min="0"
+                          className="w-full bg-black/40 border border-white/10 p-3 rounded outline-none focus:border-spotify-green text-2xl font-bold text-center"
+                          placeholder="Gols A"
+                          value={matchForm.scoreA}
+                          onChange={e => setMatchForm({...matchForm, scoreA: parseInt(e.target.value) || 0})}
+                        />
+                      </div>
+
+                      <div className="flex justify-center text-spotify-subtext py-2">
+                        <Swords size={24}/>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[10px] uppercase font-bold text-spotify-subtext tracking-widest">Time B</label>
+                        <select 
+                          className="w-full bg-black/40 border border-white/10 p-3 rounded outline-none focus:border-spotify-green text-sm"
+                          value={matchForm.teamBId}
+                          onChange={e => setMatchForm({...matchForm, teamBId: parseInt(e.target.value)})}
+                        >
+                          <option value={-1}>Selecione...</option>
+                          {generatedTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        </select>
+                        <input 
+                          type="number" 
+                          min="0"
+                          className="w-full bg-black/40 border border-white/10 p-3 rounded outline-none focus:border-spotify-green text-2xl font-bold text-center"
+                          placeholder="Gols B"
+                          value={matchForm.scoreB}
+                          onChange={e => setMatchForm({...matchForm, scoreB: parseInt(e.target.value) || 0})}
+                        />
+                      </div>
+                    </div>
+
+                    <button type="submit" className="w-full bg-white text-black font-bold py-3 rounded-full hover:scale-105 transition-transform">REGISTRAR PARTIDA</button>
+                  </form>
+                </div>
+
+                {/* List of current matches */}
+                <div className="lg:col-span-2 space-y-4">
+                  <h3 className="font-bold text-lg">Confrontos Registrados ({currentMatches.length})</h3>
+                  {currentMatches.length === 0 ? (
+                    <div className="bg-black/20 border border-dashed border-white/10 p-12 rounded-xl text-center text-spotify-subtext">
+                      Nenhuma partida registrada ainda.
+                    </div>
+                  ) : (
+                    <div className="grid gap-4">
+                      {currentMatches.map((m, idx) => {
+                        const teamA = generatedTeams.find(t => t.id === m.teamAId);
+                        const teamB = generatedTeams.find(t => t.id === m.teamBId);
+                        return (
+                          <div key={m.id} className="bg-spotify-elevated p-5 rounded-lg border border-white/5 flex items-center justify-between group">
+                            <div className="flex-1 flex items-center gap-4 justify-end">
+                              <span className={`font-bold text-lg ${m.scoreA > m.scoreB ? 'text-spotify-green' : 'text-white'}`}>{teamA?.name}</span>
+                              <span className="text-3xl font-black bg-black/40 px-4 py-2 rounded">{m.scoreA}</span>
+                            </div>
+                            <div className="px-6 text-spotify-subtext">
+                              <span className="text-xs font-bold">VS</span>
+                            </div>
+                            <div className="flex-1 flex items-center gap-4 justify-start">
+                              <span className="text-3xl font-black bg-black/40 px-4 py-2 rounded">{m.scoreB}</span>
+                              <span className={`font-bold text-lg ${m.scoreB > m.scoreA ? 'text-spotify-green' : 'text-white'}`}>{teamB?.name}</span>
+                            </div>
+                            <button onClick={() => handleDeleteMatch(m.id)} className="ml-4 p-2 text-spotify-subtext hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Trash2 size={20} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {activeTab === 'BBQ' && (
@@ -770,6 +979,86 @@ function App() {
                     </div>
                  </div>
             </div>
+        )}
+
+        {activeTab === 'HISTORY' && (
+          <div className="space-y-8 animate-in fade-in">
+             <h2 className="text-3xl md:text-5xl font-bold mb-2 tracking-tighter">Histórico</h2>
+             {history.length === 0 ? (
+               <div className="bg-spotify-elevated p-12 rounded-xl border border-white/5 text-center text-spotify-subtext">Nenhum jogo salvo ainda.</div>
+             ) : (
+               <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+                  <div className="lg:col-span-1 space-y-2">
+                    {history.map(game => (
+                      <button 
+                        key={game.id} 
+                        onClick={() => setSelectedHistoryId(game.id)}
+                        className={`w-full text-left p-4 rounded-lg transition-all ${selectedHistoryId === game.id ? 'bg-spotify-green text-black font-bold shadow-lg' : 'bg-spotify-elevated text-white hover:bg-spotify-highlight'}`}
+                      >
+                        <div className="flex justify-between items-center">
+                           <span>{game.dateString}</span>
+                           <span className="text-[10px] opacity-60">{game.stats.totalPlayers} jogadores</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="lg:col-span-3">
+                    {selectedHistoryId && history.find(h => h.id === selectedHistoryId) && (
+                      <div className="bg-spotify-elevated rounded-xl border border-white/10 p-6 animate-in slide-in-from-right-4">
+                         {(() => {
+                           const game = history.find(h => h.id === selectedHistoryId)!;
+                           return (
+                             <div className="space-y-8">
+                                <div className="flex justify-between items-start border-b border-white/5 pb-4">
+                                   <div>
+                                     <h3 className="text-2xl font-bold">{game.dateString}</h3>
+                                     <p className="text-spotify-subtext text-sm">Resumo da rodada</p>
+                                   </div>
+                                </div>
+
+                                {game.matches && game.matches.length > 0 && (
+                                  <section className="space-y-4">
+                                    <h4 className="text-sm font-bold text-spotify-subtext uppercase tracking-widest flex items-center gap-2"><Swords size={16}/> Confrontos do Dia</h4>
+                                    <div className="grid gap-2">
+                                       {game.matches.map(m => {
+                                          const tA = game.teams.find(t => t.id === m.teamAId);
+                                          const tB = game.teams.find(t => t.id === m.teamBId);
+                                          return (
+                                            <div key={m.id} className="bg-black/20 p-3 rounded flex items-center justify-between text-sm">
+                                               <span className="flex-1 text-right font-bold pr-4">{tA?.name}</span>
+                                               <span className="bg-white/10 px-3 py-1 rounded font-black text-base">{m.scoreA} x {m.scoreB}</span>
+                                               <span className="flex-1 text-left font-bold pl-4">{tB?.name}</span>
+                                            </div>
+                                          );
+                                       })}
+                                    </div>
+                                  </section>
+                                )}
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                   {game.teams.map(team => (
+                                     <div key={team.id} className="bg-black/20 p-4 rounded-lg">
+                                        <h4 className="font-bold mb-3 border-b border-white/5 pb-2 text-spotify-green">{team.name}</h4>
+                                        <div className="space-y-2">
+                                          {team.players.map(p => (
+                                            <div key={p.id} className="flex items-center gap-2 text-xs">
+                                               <img src={p.photoUrl} className="w-5 h-5 rounded-full object-cover" />
+                                               <span>{p.name}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                     </div>
+                                   ))}
+                                </div>
+                             </div>
+                           );
+                         })()}
+                      </div>
+                    )}
+                  </div>
+               </div>
+             )}
+          </div>
         )}
 
         {activeTab === 'FINANCE' && (
@@ -1039,12 +1328,13 @@ function App() {
       )}
 
       {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 w-full bg-black/90 border-t border-white/5 flex justify-around py-4 z-40 backdrop-blur-lg">
-         <button onClick={() => setActiveTab('PLAYERS')} className={activeTab === 'PLAYERS' ? 'text-white' : 'text-spotify-subtext'}><Users size={24} /></button>
-         <button onClick={() => setActiveTab('STARS')} className={activeTab === 'STARS' ? 'text-white' : 'text-spotify-subtext'}><Star size={24} /></button>
-         <button onClick={() => setActiveTab('TEAMS')} className={activeTab === 'TEAMS' ? 'text-white' : 'text-spotify-subtext'}><Shirt size={24} /></button>
-         <button onClick={() => setActiveTab('BBQ')} className={activeTab === 'BBQ' ? 'text-white' : 'text-spotify-subtext'}><Utensils size={24} /></button>
-         <button onClick={() => setActiveTab('FINANCE')} className={activeTab === 'FINANCE' ? 'text-white' : 'text-spotify-subtext'}><Banknote size={24} /></button>
+      <nav className="md:hidden fixed bottom-0 w-full bg-black/90 border-t border-white/5 flex justify-around py-4 z-40 backdrop-blur-lg overflow-x-auto">
+         <button onClick={() => setActiveTab('PLAYERS')} className={activeTab === 'PLAYERS' ? 'text-white' : 'text-spotify-subtext px-4'}><Users size={24} /></button>
+         <button onClick={() => setActiveTab('STARS')} className={activeTab === 'STARS' ? 'text-white' : 'text-spotify-subtext px-4'}><Star size={24} /></button>
+         <button onClick={() => setActiveTab('TEAMS')} className={activeTab === 'TEAMS' ? 'text-white' : 'text-spotify-subtext px-4'}><Shirt size={24} /></button>
+         <button onClick={() => setActiveTab('PLACAR')} className={activeTab === 'PLACAR' ? 'text-white' : 'text-spotify-subtext px-4'}><Swords size={24} /></button>
+         <button onClick={() => setActiveTab('BBQ')} className={activeTab === 'BBQ' ? 'text-white' : 'text-spotify-subtext px-4'}><Utensils size={24} /></button>
+         <button onClick={() => setActiveTab('FINANCE')} className={activeTab === 'FINANCE' ? 'text-white' : 'text-spotify-subtext px-4'}><Banknote size={24} /></button>
       </nav>
 
     </div>

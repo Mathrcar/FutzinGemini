@@ -1,40 +1,49 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Player, Team } from "../types";
 
-// Helper to initialize AI
-const getAI = () => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("API Key not found");
-  return new GoogleGenAI({ apiKey });
-};
-
 export const generateTeamsWithAI = async (
-  selectedPlayers: Player[]
+  selectedPlayers: Player[],
+  playerPerformanceMap?: Record<string, { winRate: number, totalGames: number }>
 ): Promise<Team[]> => {
-  const ai = getAI();
+  // Always use a direct initialization with the API key from process.env.API_KEY.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const playerCount = selectedPlayers.length;
 
   // Determine team count rule for context
   let teamCount = 3;
   if (playerCount >= 22) teamCount = 4;
 
+  const playersContext = selectedPlayers.map(p => {
+    const perf = playerPerformanceMap?.[p.id];
+    return {
+      id: p.id,
+      name: p.name,
+      stars: p.stars,
+      isGoalkeeper: p.isGoalkeeper,
+      performance: perf ? `${(perf.winRate * 100).toFixed(0)}% win rate in ${perf.totalGames} games` : 'No history'
+    };
+  });
+
   const prompt = `
     Organize a soccer match with these players.
     Total Players: ${playerCount}.
     Target Teams: ${teamCount}.
     
-    Rules:
-    1. Distribute Goalkeepers (isGoalkeeper: true) as evenly as possible. No team should have 2 goalkeepers if possible.
-    2. Balance the teams based on 'stars' (1-5) so the sum of stars is similar.
-    3. Return exactly ${teamCount} teams.
+    CRITICAL BALANCE RULES:
+    1. Distribute Goalkeepers (isGoalkeeper: true) as evenly as possible.
+    2. Primary Balance: Use 'stars' (1-5 manual skill) to ensure teams are leveled.
+    3. Secondary Balance (Tie-breaker): Use the provided 'performance' (win rate from match history) to adjust. 
+       If a player has high stars but a very low win rate, they might be overrated. 
+       If a player has low stars but a high win rate, they might be a "lucky charm" or underrated.
+    4. The goal is that each team has a similar sum of 'effective skill' (stars + performance weight).
     
-    Players JSON:
-    ${JSON.stringify(selectedPlayers.map(p => ({ id: p.id, name: p.name, stars: p.stars, isGoalkeeper: p.isGoalkeeper })))}
+    Players Data:
+    ${JSON.stringify(playersContext)}
   `;
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-pro-preview",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -82,7 +91,7 @@ export const generateTeamsWithAI = async (
 };
 
 export const generatePlayerAvatar = async (playerName: string, isGoalkeeper: boolean): Promise<string> => {
-  const ai = getAI();
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `
     A cool, stylized, vector art profile icon of a soccer player. 
     Style: Minimalist, flat design, vibrant green and black colors (Spotify style), dark background.

@@ -25,6 +25,15 @@ export interface Team {
   totalStars: number;
 }
 
+export interface Match {
+  id: string;
+  teamAId: number;
+  teamBId: number;
+  scoreA: number;
+  scoreB: number;
+  timestamp: number;
+}
+
 export interface GameSettings {
   players: Player[];
   generatedTeams: Team[];
@@ -36,6 +45,7 @@ export interface GameHistory {
   timestamp: number;
   dateString: string; // DD/MM/YYYY
   teams: Team[];
+  matches?: Match[];
   stats: {
     totalPlayers: number;
     averageBalance: number;
@@ -69,4 +79,4 @@ export interface PaymentRegistry {
   [key: string]: boolean;
 }
 
-export type TabView = 'PLAYERS' | 'STARS' | 'TEAMS' | 'HISTORY' | 'FINANCE' | 'BBQ';
+export type TabView = 'PLAYERS' | 'STARS' | 'TEAMS' | 'PLACAR' | 'BBQ' | 'HISTORY' | 'FINANCE';
