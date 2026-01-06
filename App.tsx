@@ -6,9 +6,6 @@ import * as geminiService from './services/geminiService';
 import PlayerCard from './components/PlayerCard';
 import StarRating from './components/StarRating';
 
-const ALGO_LOCAL = 'LOCAL';
-const ALGO_AI = 'AI';
-
 function App() {
   const [activeTab, setActiveTab] = useState<TabView>('PLAYERS');
   const [players, setPlayers] = useState<Player[]>([]);
@@ -245,46 +242,19 @@ function App() {
 
   const togglePaymentStatus = (paymentKey: string) => setPayments(storage.togglePayment(paymentKey));
 
-  const generateTeamsLocal = () => {
-    setTeamsError(null);
-    const selected = players.filter(p => selectedPlayerIds.has(p.id));
-    const total = selected.length;
-    const gks = selected.filter(p => p.isGoalkeeper);
-    const outfield = selected.filter(p => !p.isGoalkeeper);
-    let numTeams = 3; if (total >= 22) numTeams = 4;
-    const getCompositeScore = (p: Player) => {
-      const perf = playerPerformanceMap[p.id];
-      const modifier = perf ? (perf.winRate - 0.5) * 2 : 0;
-      return p.stars + modifier;
-    };
-    const sortedOutfield = [...outfield].sort((a, b) => getCompositeScore(b) - getCompositeScore(a));
-    const teams: Player[][] = Array.from({ length: numTeams }, () => []);
-    const sortedGKs = [...gks].sort((a,b) => getCompositeScore(b) - getCompositeScore(a));
-    sortedGKs.forEach((gk, index) => { teams[index % numTeams].push(gk); });
-    let teamIndex = 0; let direction = 1; 
-    sortedOutfield.forEach((player) => {
-       teams[teamIndex].push(player);
-       teamIndex += direction;
-       if (teamIndex >= numTeams) { teamIndex = numTeams - 1; direction = -1; } 
-       else if (teamIndex < 0) { teamIndex = 0; direction = 1; }
-    });
-    setGeneratedTeams(teams.map((teamPlayers, idx) => {
-        const totalStars = teamPlayers.reduce((acc, p) => acc + p.stars, 0);
-        return { id: idx + 1, name: `Time ${idx + 1}`, players: teamPlayers, totalStars, averageStars: teamPlayers.length ? parseFloat((totalStars / teamPlayers.length).toFixed(1)) : 0 };
-    }));
-    setCurrentMatches([]); 
-  };
-
-  const handleGenerateTeams = async (method: typeof ALGO_LOCAL | typeof ALGO_AI) => {
-     if (selectedPlayerIds.size < 4) { alert("Selecione pelo menos 4 jogadores."); return; }
-     if (method === ALGO_LOCAL) { generateTeamsLocal(); } else {
-         const selected = players.filter(p => selectedPlayerIds.has(p.id));
-         try {
-             setLoadingAI(true);
-             const aiTeams = await geminiService.generateTeamsWithAI(selected, playerPerformanceMap);
-             setGeneratedTeams(aiTeams);
-             setCurrentMatches([]); 
-         } catch (e) { alert("Erro ao gerar times com IA."); } finally { setLoadingAI(false); }
+  const handleGenerateTeams = async () => {
+     if (selectedPlayerIds.size < 4) { alert("Selecione pelo menos 4 jogadores confirmados."); return; }
+     
+     const selected = players.filter(p => selectedPlayerIds.has(p.id));
+     try {
+         setLoadingAI(true);
+         const aiTeams = await geminiService.generateTeamsWithAI(selected, playerPerformanceMap);
+         setGeneratedTeams(aiTeams);
+         setCurrentMatches([]); 
+     } catch (e) { 
+         alert("Erro ao realizar o sorteio inteligente. Verifique sua conexão."); 
+     } finally { 
+         setLoadingAI(false); 
      }
   };
 
@@ -472,14 +442,19 @@ function App() {
                      <div>
                          <h2 className="text-2xl font-black mb-1">Sorteio da Partida</h2>
                          <div className="flex items-center gap-4 text-[10px] font-black text-spotify-subtext uppercase tracking-widest">
-                            <span>Total: <span className="text-white">{stats.total}</span></span>
+                            <span>Confirmados: <span className="text-white">{stats.total}</span></span>
                             <span>Goleiros: <span className="text-white">{stats.gks}</span></span>
+                            <span className="text-spotify-green/60">Modo: {stats.total < 22 ? '3 TIMES' : '4 TIMES'}</span>
                          </div>
                      </div>
-                     <div className="flex w-full md:w-auto gap-3">
-                        <button onClick={() => handleGenerateTeams(ALGO_LOCAL)} className="flex-1 md:flex-none bg-white text-black hover:scale-105 px-6 py-3 rounded-full font-black text-sm transition-all">Padrão</button>
-                        <button onClick={() => handleGenerateTeams(ALGO_AI)} disabled={loadingAI} className="flex-1 md:flex-none bg-indigo-600 hover:bg-indigo-500 hover:scale-105 disabled:opacity-50 px-6 py-3 rounded-full font-black text-sm transition-all flex items-center justify-center gap-2">
-                           {loadingAI ? <Loader2 size={18} className="animate-spin" /> : <Wand2 size={18} />} IA
+                     <div className="flex w-full md:w-auto">
+                        <button 
+                          onClick={handleGenerateTeams} 
+                          disabled={loadingAI || selectedPlayerIds.size < 4} 
+                          className="w-full md:w-auto bg-spotify-green hover:bg-spotify-green-bright text-black hover:scale-105 disabled:opacity-50 px-10 py-4 rounded-full font-black text-sm transition-all flex items-center justify-center gap-3 shadow-lg shadow-spotify-green/20"
+                        >
+                           {loadingAI ? <Loader2 size={20} className="animate-spin" /> : <Wand2 size={20} />} 
+                           SORTEAR TIMES
                         </button>
                      </div>
                  </div>
@@ -488,10 +463,13 @@ function App() {
               {generatedTeams.length > 0 ? (
                   <div className="space-y-6">
                       <div className="flex flex-col md:flex-row justify-between items-center bg-spotify-green/10 border border-spotify-green/20 p-5 rounded-2xl gap-4">
-                         <span className="text-spotify-subtext text-sm font-medium">Times sorteados! Registre os resultados no Placar.</span>
-                         <button onClick={() => setActiveTab('PLACAR')} className="w-full md:w-auto bg-spotify-green text-black px-6 py-2 rounded-full font-black flex items-center justify-center gap-2 hover:scale-105 transition-all"><Swords size={18}/> IR PARA PLACAR</button>
+                         <span className="text-spotify-subtext text-sm font-medium">Sorteio otimizado realizado com sucesso!</span>
+                         <div className="flex gap-2 w-full md:w-auto">
+                            <button onClick={() => setGeneratedTeams([])} className="flex-1 md:flex-none px-6 py-2 rounded-full font-bold text-xs border border-white/10 hover:bg-white/5 transition-colors">LIMPAR</button>
+                            <button onClick={() => setActiveTab('PLACAR')} className="flex-1 md:flex-none bg-spotify-green text-black px-6 py-2 rounded-full font-black flex items-center justify-center gap-2 hover:scale-105 transition-all text-xs"><Swords size={16}/> IR PARA PLACAR</button>
+                         </div>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-12">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-12">
                           {generatedTeams.map(team => (
                               <div key={team.id} className="bg-spotify-highlight/30 rounded-2xl p-6 border border-white/5">
                                   <div className="flex justify-between items-center mb-6">
@@ -500,11 +478,11 @@ function App() {
                                   </div>
                                   <div className="grid grid-cols-1 gap-3">
                                       {team.players.map(p => (
-                                          <div key={p.id} className="flex items-center gap-3 bg-black/20 p-3 rounded-xl">
+                                          <div key={p.id} className="flex items-center gap-3 bg-black/20 p-3 rounded-xl border border-white/5">
                                               <img src={p.photoUrl} className="w-8 h-8 rounded-full object-cover" />
                                               <div className="flex flex-col min-w-0">
                                                   <span className="text-sm font-bold truncate">{p.name}</span>
-                                                  {p.type === PlayerType.AVULSO && <span className="text-[10px] text-yellow-500 font-bold">Resp: {getResponsibleName(p.linkedMensalistaId)}</span>}
+                                                  {p.isGoalkeeper && <span className="text-[10px] text-yellow-500 font-bold uppercase">Goleiro</span>}
                                               </div>
                                           </div>
                                       ))}
@@ -515,6 +493,7 @@ function App() {
                   </div>
               ) : (
                   <div className="space-y-12 pb-24">
+                     <p className="text-spotify-subtext text-center text-sm mb-4">Selecione os jogadores presentes no dia para realizar o sorteio equilibrado.</p>
                      {['MENSALISTAS', 'AVULSOS'].map(type => {
                        const playersOfType = type === 'MENSALISTAS' ? groupedPlayersForSelection.mensalistas : groupedPlayersForSelection.avulsos;
                        return playersOfType.length > 0 && (
@@ -541,6 +520,7 @@ function App() {
            </div>
         )}
 
+        {/* Demais abas mantidas... */}
         {activeTab === 'PLACAR' && (
           <div className="space-y-8 animate-slide-up pb-12">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
@@ -871,7 +851,7 @@ function App() {
         )}
       </main>
 
-      {/* NEW PLAYER MODAL - Revamped for mobile bottom-sheet feel */}
+      {/* NEW PLAYER MODAL... mantido igual */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[100] flex items-end md:items-center justify-center">
           <div className="bg-spotify-highlight rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border-t md:border border-white/10 max-h-[92vh] overflow-y-auto animate-slide-up">

@@ -5,13 +5,11 @@ export const generateTeamsWithAI = async (
   selectedPlayers: Player[],
   playerPerformanceMap?: Record<string, { winRate: number, totalGames: number }>
 ): Promise<Team[]> => {
-  // Always use a direct initialization with the API key from process.env.API_KEY.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const playerCount = selectedPlayers.length;
 
-  // Determine team count rule for context
-  let teamCount = 3;
-  if (playerCount >= 22) teamCount = 4;
+  // Regra de negócio: < 22 jogadores = 3 times | >= 22 jogadores = 4 times
+  const teamCount = playerCount < 22 ? 3 : 4;
 
   const playersContext = selectedPlayers.map(p => {
     const perf = playerPerformanceMap?.[p.id];
@@ -20,24 +18,26 @@ export const generateTeamsWithAI = async (
       name: p.name,
       stars: p.stars,
       isGoalkeeper: p.isGoalkeeper,
-      performance: perf ? `${(perf.winRate * 100).toFixed(0)}% win rate in ${perf.totalGames} games` : 'No history'
+      performance: perf ? `${(perf.winRate * 100).toFixed(0)}% win rate em ${perf.totalGames} jogos` : 'Sem histórico'
     };
   });
 
   const prompt = `
-    Organize a soccer match with these players.
-    Total Players: ${playerCount}.
-    Target Teams: ${teamCount}.
+    Atue como um técnico profissional de futebol organizando um sorteio.
+    Total de Jogadores: ${playerCount}.
+    Quantidade de Times a gerar: ${teamCount}.
     
-    CRITICAL BALANCE RULES:
-    1. Distribute Goalkeepers (isGoalkeeper: true) as evenly as possible.
-    2. Primary Balance: Use 'stars' (1-5 manual skill) to ensure teams are leveled.
-    3. Secondary Balance (Tie-breaker): Use the provided 'performance' (win rate from match history) to adjust. 
-       If a player has high stars but a very low win rate, they might be overrated. 
-       If a player has low stars but a high win rate, they might be a "lucky charm" or underrated.
-    4. The goal is that each team has a similar sum of 'effective skill' (stars + performance weight).
+    REGRAS OBRIGATÓRIAS:
+    1. DISTRIBUIÇÃO DE GOLEIROS: É terminantemente proibido que um time tenha 2 goleiros (isGoalkeeper: true). Distribua os goleiros entre os times. Se houver menos goleiros que times, alguns times ficarão sem.
+    2. EQUILÍBRIO TÉCNICO: O objetivo é que a soma de "habilidade efetiva" de cada time seja quase idêntica.
+    3. CRITÉRIOS DE EQUILÍBRIO: 
+       - Use 'stars' (1-5) como base principal.
+       - Use 'performance' (win rate histórica) como ajuste fino. Um jogador com 3 estrelas mas 80% de win rate deve ser considerado mais forte que um de 3 estrelas com 20%.
+    4. TAMANHO DOS TIMES: 
+       - Se N < 21, divida em 3 times (mesmo que um time tenha menos jogadores).
+       - Se N >= 22, divida em 4 times (mesmo que os tamanhos variem).
     
-    Players Data:
+    Dados dos Jogadores:
     ${JSON.stringify(playersContext)}
   `;
 
@@ -66,7 +66,6 @@ export const generateTeamsWithAI = async (
 
     const generatedData = JSON.parse(response.text || "[]");
     
-    // Map back to full player objects and calculate stats
     const teams: Team[] = generatedData.map((teamData: any, index: number) => {
         const teamPlayers = teamData.playerIds.map((id: string) => 
             selectedPlayers.find(p => p.id === id)
