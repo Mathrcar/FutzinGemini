@@ -1,5 +1,8 @@
 {
   "name": "FutManager AI",
   "description": "Gestor inteligente de futebol semanal com sorteio de times via algoritmo ou IA Gemini, gestão de mensalistas e avaliação de jogadores.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
 }
